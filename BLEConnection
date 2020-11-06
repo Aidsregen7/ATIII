@@ -1,0 +1,89 @@
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
+BLECharacteristic *pCharacteristic;
+boolean deviceConnected = false;
+int txValue = 0;
+int ledPin = 27;
+int potiPin = 36;
+unsigned long btPrevious = 0;
+
+#define SERVICE_UUID "6e400001-b5a3-f393-e0A9-e50e24dcca9e"
+#define CHARA_UUID_RX "6e400002-b5a3-f393-e0A9-e50e24dcca9e"
+#define CHARA_UUID_TX "6e400003-b5a3-f393-e0A9-e50e24dcca9e"
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    };
+    void onDisconnect(BLEServer* pServer)
+    {
+      deviceConnected = false;
+    };
+};
+
+class MyCallbacks: public BLECharacteristicCallbacks
+{
+    void onWrite(BLECharacteristic *pCharacteristic)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      if (rxValue.length() > 0)
+      {
+        Serial.println("***********\nReceived Value: ");
+        for (int i = 0; i < rxValue.length(); i++)
+        {
+          Serial.print(rxValue[i]);
+        }
+        Serial.println("\n***********");
+        if (rxValue.find("1") != -1)
+        {
+          digitalWrite(ledPin, HIGH);
+        }
+        else if (rxValue.find("0") != -1)
+        {
+          digitalWrite(ledPin, LOW);
+        }
+      }
+    };
+};
+
+void setup()
+{
+  Serial.begin(115200);
+  pinMode(ledPin, OUTPUT);
+  BLEDevice::init("SUFitness");//legt Device-Namen fest. Kann geändert werden
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+                      CHARA_UUID_TX,
+                      BLECharacteristic::PROPERTY_NOTIFY);
+  pCharacteristic->addDescriptor(new BLE2902());
+  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+                                         CHARA_UUID_RX,
+                                         BLECharacteristic::PROPERTY_WRITE);
+  pCharacteristic->setCallbacks(new MyCallbacks());
+  pService->start();
+  pServer->getAdvertising()->start();
+  Serial.println("Waiting for a client connection to notify");
+}
+
+void loop()
+{
+  if (deviceConnected)
+  {
+    if (millis() - btPrevious >= 500)
+    {
+      Serial.println("Connected");
+      txValue = random(20, 100);
+      char txString[8];
+      dtostrf(txValue, 1, 2, txString);
+      pCharacteristic->setValue(txString);
+      pCharacteristic->notify();
+      Serial.println("Sent value: " + String(txString));
+      btPrevious = millis();
+    }
+  }
+}
